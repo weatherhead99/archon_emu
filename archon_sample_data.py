@@ -67,4 +67,7 @@ StateE; GOTO ExampleStart
 ExampleSub:
 StateC; StateC(3)
 StateD; RETURN ExampleSub
+# To decrement a parameter, add a directive to the end of a line like this:
+AllClocksLow; MyParameter--
+AllClocksLow; CALL MySubroutine(100); MyParameter—
 """
