@@ -24,6 +24,7 @@ class ArchonInstructions(Enum):
     CONDITIONAL =5
     
 #TODO: NOP
+#TODO: HANDLE EMPTY LINES
 
 #these instructions represent control flow jumps
 CALL_INSTR_TYPES = [ArchonInstructions.CALL , ArchonInstructions.GOTO]
