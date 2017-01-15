@@ -8,7 +8,7 @@ Created on Tue Jan 10 22:04:12 2017
 
 import pyparsing as ps
 from enum import Enum
-from archon_sample_data import *
+
 
 import logging
 
@@ -47,10 +47,11 @@ class ArchonCompiler:
         self.labeljumps = {}
         self.currentlineactions = []
         self.alllineactions = []
+        self.commentlines = []
             
     def construct_parser(self):
         #define keywords recognised within this timing script
-        label = ps.Word(ps.alphas)
+        label = ps.Word(ps.alphanums)
         parameter_kws = [ps.Keyword(_) for _ in self.params]
         parameter_literals = [ps.Literal(_) for _ in self.params]
         state_kws = [ps.Keyword(_) for _ in self.states]
@@ -59,7 +60,7 @@ class ArchonCompiler:
 
         #comments are completely ignored by the parser, not even assigned to a line number
         comment  = litsup('#') + ps.restOfLine.suppress() 
-        
+        setparsecall(comment,self.comment)
         #the following work in a "standard" way, just call a member function with the first 
         #parsed token
         labeldefine = (label + litsup(':') + ps.restOfLine.suppress())        
@@ -75,7 +76,7 @@ class ArchonCompiler:
         RETURN = (kwsup('RETURN') + label)
         setparsecall(RETURN,self.ret)
         
-        CALL = (kwsup('CALL') + label + litsup('(') + subroutinearg + litsup(')'))
+        CALL = (kwsup('CALL') + label + ps.Optional(litsup('(') + subroutinearg + litsup(')')))
         setparsecall(CALL,self.call)
         
         IMPLICITCALL = (label + litsup('(') + subroutinearg + litsup(')'))        
@@ -84,22 +85,30 @@ class ArchonCompiler:
         #DECREMENT needs to be special cased, not quite sure why
         DECREMENT = ps.Or(parameter_literals) + litsup('--')
         setparsecall(DECREMENT,self.decrement)
-        builtin_action =  GOTO ^ DECREMENT ^ CALL ^ IMPLICITCALL ^ RETURN 
-        IF = (kwsup('IF') + ps.Optional(ps.Literal('!')) + ps.Or(parameter_kws) + builtin_action.suppress())
+        
+        IF = (kwsup('IF') + ps.Optional(ps.Literal('!')) + ps.Or(parameter_kws)  )
         
         #the odd one out!
         IF.setParseAction(lambda t : self.conditional(t))
+        
+        
+        builtin_action =  CALL ^ GOTO ^ DECREMENT ^ IMPLICITCALL ^ RETURN 
+        #IF = (kwsup('IF') + ps.Optional(ps.Literal('!')) + ps.Or(parameter_kws) + builtin_action.suppress())
                 
         
-        active_timing_line = state_expr + ps.ZeroOrMore(litsup(';') + (builtin_action ^ IF )) 
+        active_timing_line = state_expr + ps.ZeroOrMore(litsup(';') + (builtin_action ^ (IF + builtin_action))) 
         active_timing_line.setParseAction(lambda t: self.advance_line())
 
-        archon_dsl_expr = ps.OneOrMore(comment | labeldefine | active_timing_line)
+        archon_dsl_expr = ps.OneOrMore(comment | labeldefine | active_timing_line) 
         
         return archon_dsl_expr
 
     def debug_linenum_msg(self,msg,fun = logging.Logger.debug):
-        fun(self.logger, ('line %d: ' % self.linenum) + msg )
+        fun(self.logger, ('line %d: ' % (self.linenum +1) + msg ))
+
+    def comment(self):
+        self.commentlines.append(self.linenum)
+        self.debug_linenum_msg('line %d is a comment' % self.linenum)
         
     def define_label(self,labelname):
         self.labeljumps[labelname] = self.linenum
@@ -115,6 +124,8 @@ class ArchonCompiler:
         
     def call(self,labelname,argument=None):
         #deref an integer literal immediately
+        if argument is None:
+            argument = 1
         try:
             argument = int(argument)
         except ValueError:
@@ -131,28 +142,30 @@ class ArchonCompiler:
         # then push a label and call one back
         
         self.define_label(labelname)
-        self.ret(labelname,argument)
+        self.ret(labelname)
         
         currstate = self.currentlineactions[0][1]
         prevlineactions = [ [ArchonInstructions.STATE,currstate], 
                            [ArchonInstructions.CALL,labelname]]
+        self.debug_linenum_msg('defined an IMPLICIT subroutine: %s %s' %(labelname, argument))
         
-        print('IMPLICIT CALL: %s %s' % (labelname,argument))
         
         
     def ret(self,labelname):
         self.currentlineactions.append( [ArchonInstructions.RETURN, labelname])
         self.debug_linenum_msg('RETURN: %s' % labelname)
     
-    def conditional(self,ts):
-        self.debug_linenum_msg('CONDITIONAL')
+    def conditional(self,ts):                
         if len(ts) > 1:
             #HACK: this implies it has a NOT operator
             tf = False
             val = ts[1]
+            self.debug_linenum_msg('CONDITIONAL on parameter %s being FALSE' % str(val) )
+            
         else:
             tf = True
             val = ts[0]
+            self.debug_linenum_msg('CONDITIONAL on parameter %s being TRUE' % str(val) )
 
         #HACK: conditional needs to go in at the second to last position
         #the last instruction should be the execution of the conditional
@@ -161,16 +174,17 @@ class ArchonCompiler:
     def decrement(self,t):
         self.currentlineactions.append((ArchonInstructions.DECREMENT, t))
         self.debug_linenum_msg('decrement %s' %t)
-        print('DECREMENT')
+#        print('DECREMENT')
     
         
     def advance_line(self):
         self.alllineactions.append(self.currentlineactions)
         self.currentlineactions = []
         self.linenum += 1
-        self.logger.debug('line increments to %d ' % self.linenum)
+        self.logger.debug('line increments to %d ' % (self.linenum +1))
         
-        
+    def check_script_length(self):
+        pass
 
     def check_label_consistency(self):
         #assemble a list of everything that's ever referenced via CALL, GOTO, or RETURN
@@ -209,7 +223,7 @@ class ArchonCompiler:
                         instr[-1] = self.constants[instr[-1]]
                 
 
-    def compile_timing_script(self, script):
+    def compile_timing_script(self, script,forcecompile=True):
         #reset internal state
         self.alllineactions = []
         self.linenum = 0
@@ -217,9 +231,17 @@ class ArchonCompiler:
 
         #parse the timing script 
         dsl_expr = self.construct_parser()
-        dsl_expr.parseString(script)
+        if forcecompile:
+            dsl_expr = dsl_expr + ps.StringEnd
+        
+        try:
+            dsl_expr.parseString(script)
+        except ps.ParseException:
+            raise RuntimeError("couldn't parse script beyond line %d, this could be an archon_emu bug" % self.linenum)
+            
     
         #run script checks
+        print('comments: %s')
         self.check_label_consistency()
         self.check_duplicate_params_constants()
         
@@ -230,12 +252,25 @@ class ArchonCompiler:
         return self.alllineactions
         
 if __name__ == '__main__':
-    sm = ArchonCompiler(states=sample_states,params=sample_params,constants = sample_constants)    
+    logging.basicConfig(level=logging.DEBUG)
+    
+    from archon_sample_data import *
+    params = {'Tsf' : 100000}
+    states = ['KEEPER']
+
+    sm = ArchonCompiler(states=states,params=params,constants = sample_constants)    
+    
     
     
     dsl_expr = sm.construct_parser()
     
-    parse_results = dsl_expr.parseString(sample_script)
+    testscript = """MyLabel:
+    AllClocksLow; IF !MyParameter GOTO MyLabel"""
+    
+    testscript2 = """SF1;SF1(Tsf)"""
+    
+    parse_results = dsl_expr.parseString(testscript2)
+
     
     sm.check_label_consistency()
     sm.check_duplicate_params_constants()
