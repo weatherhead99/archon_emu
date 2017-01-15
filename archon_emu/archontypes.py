@@ -179,7 +179,6 @@ class DriverState(ClockState):
 
     def __repr__(self):
         syms = ['-'] * 8
-        
         labels = {}
         i = 0
         for ind,(clock,slew) in enumerate(zip(self._clockset,self._slewrates)):
