@@ -12,22 +12,14 @@ from enum import Enum
 
 import logging
 
-
-
- 
-class ArchonInstructions(Enum):
-    STATE = 0
-    GOTO = 1
-    CALL = 2
-    DECREMENT = 3
-    RETURN = 4
-    CONDITIONAL =5
+from .archontypes import ArchonInstructions   
+from .acffile import ArchonConfig
     
 #TODO: NOP
 #TODO: HANDLE EMPTY LINES
 
 #these instructions represent control flow jumps
-CALL_INSTR_TYPES = [ArchonInstructions.CALL , ArchonInstructions.GOTO]
+CALL_INSTR_TYPES = [ArchonInstructions.CALL , ArchonInstructions.GOTO, ArchonInstructions.RETURN]
 
 #these instructions can take an loop argument
 ARGUMENT_INSTR_TYPES = [ArchonInstructions.CALL, ArchonInstructions.DECREMENT]
@@ -38,7 +30,15 @@ kwsup = lambda kw : ps.Keyword(kw).suppress()
 setparsecall = lambda obj, fun : obj.setParseAction(lambda t : fun(*t))
 
 class ArchonCompiler:
-    def __init__(self,states,params,constants):
+    
+    @classmethod
+    def from_archonconfig(cls,obj):
+        if isinstance(obj,ArchonConfig):
+            return cls(obj.states,obj.parameters,obj.constants,obj.timing_script)
+        
+        raise TypeError("don't know how to construct a %s from a %s" % (cls.__name__, type(obj).__name__))
+    
+    def __init__(self,states,params,constants,tscript=None):
         self.logger = logging.getLogger('archon_emu.ArchonCompiler')
         self.states = states
         self.params = params
@@ -47,7 +47,19 @@ class ArchonCompiler:
         self.labeljumps = {}
         self.currentlineactions = []
         self.alllineactions = []
+        self.instrumented_derefs = []
+        self.instrumented_calls = []
+
+        self.aux_instrumented_calls = []
+        self.aux_instrumented_derefs = []
+        self.auxlines =[]
+        self.auxlabeljumps = {}
+        self.auxlinenum = 0
+
         self.commentlines = []
+
+        if tscript is not None:
+            self.tscript = tscript
             
     def construct_parser(self):
         #define keywords recognised within this timing script
@@ -100,7 +112,7 @@ class ArchonCompiler:
         active_timing_line = state_expr + ps.ZeroOrMore(litsup(';') + (builtin_action ^ (IF + (builtin_action^ state_expr)))) + ps.Optional(litsup(';')) 
         active_timing_line.setParseAction(lambda t: self.advance_line())
 
-        archon_dsl_expr = ps.OneOrMore(comment | labeldefine | active_timing_line) 
+        archon_dsl_expr = ps.OneOrMore(comment | labeldefine | active_timing_line)
         
         return archon_dsl_expr
 
@@ -116,7 +128,7 @@ class ArchonCompiler:
         self.debug_linenum_msg('defining label: %s' % labelname)
         
     def output_state(self,statename):
-        self.currentlineactions.append( (ArchonInstructions.STATE,statename)) 
+        self.currentlineactions.append( [ArchonInstructions.STATE,statename]) 
         self.debug_linenum_msg('setting state: %s ' % ( statename))
             
     def goto(self,labelname):
@@ -135,22 +147,19 @@ class ArchonCompiler:
         self.currentlineactions.append( [ArchonInstructions.CALL, labelname,argument])
         self.debug_linenum_msg('CALL: %s %s' % (labelname,argument))
     
-    def implicitcall(self,labelname,argument=None):
-        #implicitly define a subroutine
-        #TODO: implicit calls don't work at the moment, need to do something cleverer
+    def implicitcall(self,labelname,argument=None):        
+        self.currentlineactions.append([ArchonInstructions.CALL,labelname,argument])
         
-        #EXPERIMENTAL: define state and return
-        # then push a label and call one back
+        auxline = [  [ArchonInstructions.STATE,labelname],
+                    [ArchonInstructions.RETURN,labelname]]
         
-        self.define_label(labelname)
-        self.ret(labelname)
+        self.auxlines.append(auxline)
+        self.auxlabeljumps[labelname] = self.auxlinenum
+        self.auxlinenum += 1
         
-        currstate = self.currentlineactions[0][1]
-        prevlineactions = [ [ArchonInstructions.STATE,currstate], 
-                           [ArchonInstructions.CALL,labelname]]
-        self.debug_linenum_msg('defined an IMPLICIT subroutine: %s %s' %(labelname, argument))
-        
-        
+        self.aux_instrumented_derefs.append([])
+        self.aux_instrumented_calls.append([])
+
         
     def ret(self,labelname):
         self.currentlineactions.append( [ArchonInstructions.RETURN, labelname])
@@ -170,7 +179,7 @@ class ArchonCompiler:
 
         #HACK: conditional needs to go in at the second to last position
         #the last instruction should be the execution of the conditional
-        self.currentlineactions.insert(-1, (ArchonInstructions.CONDITIONAL,tf,val))
+        self.currentlineactions.append( [ArchonInstructions.CONDITIONAL,tf,val])
         
     def decrement(self,t):
         self.currentlineactions.append((ArchonInstructions.DECREMENT, t))
@@ -183,6 +192,9 @@ class ArchonCompiler:
         self.currentlineactions = []
         self.linenum += 1
         self.logger.debug('line increments to %d ' % (self.linenum +1))
+        
+        self.instrumented_derefs.append([])
+        self.instrumented_calls.append([])
         
     def check_script_length(self):
         pass
@@ -208,39 +220,67 @@ class ArchonCompiler:
             raise ValueError('the names %s appear as both a parameter and a constant' % duplicates)
 
     def dereference_jumps(self):
-        for line in self.alllineactions:
+        for ind,line in enumerate(self.alllineactions):
             for instr in line:
                 if instr[0] in CALL_INSTR_TYPES:
                     #instr[1] will always be the jump target
                     #de-reference the name to a location
-                    instr[1] = self.labeljumps[instr[1]]
+                    labelname = instr[1]
+                    instr[1] = self.labeljumps[labelname]
+
+                    #append the name we just replaced, for instrumentation purposes
+                    self.instrumented_calls[ind].append(labelname)
 
 
     def dereference_consts(self):
-        for line in self.alllineactions:
+        for ind,line in enumerate(self.alllineactions):
             for instr in line:
                 if instr[0] in ARGUMENT_INSTR_TYPES:
                     if instr[-1] in self.constants:
-                        instr[-1] = self.constants[instr[-1]]
-                
+                        constname = instr[-1]
+                        instr[-1] = self.constants[constname]
+                        self.instrumented_derefs[ind].append(constname)
+                        #append constant name for instrumentation purposes
+                        
+    def get_instrumentation(self):
+        return [self.instrumented_derefs,self.instrumented_calls,self.labeljumps]
 
-    def compile_timing_script(self, script,forcecompile=True):
+    def compile_timing_script(self, script=None,forcecompile=True):
+        if script is None:
+            script = self.tscript
+        
         #reset internal state
         self.alllineactions = []
         self.linenum = 0
         self.labeljumps = {}        
+        
+
 
         #parse the timing script 
         dsl_expr = self.construct_parser()
+        
         if forcecompile:
-            dsl_expr = dsl_expr + ps.StringEnd
+            dsl_expr += ps.StringEnd()
         
         try:
             dsl_expr.parseString(script)
         except ps.ParseException:
             raise RuntimeError("couldn't parse script beyond line %d, this could be an archon_emu bug" % self.linenum)
-            
+        
+        #add a halt instruction
+        self.currentlineactions.append([ArchonInstructions.HALT])
+        self.advance_line()
+        
+        #merge implicit calls
+        self.alllineactions.extend(self.auxlines)
+        #merge implicit call labels
+        implicit_labels_with_offsets = {k:v+self.linenum for k,v in self.auxlabeljumps.items()}
+        self.labeljumps.update(implicit_labels_with_offsets)
     
+        #merge implicit instrumented stuff
+        self.instrumented_derefs.extend(self.aux_instrumented_derefs)
+        self.instrumented_calls.extend(self.aux_instrumented_calls)
+        
         #run script checks
         print('comments: %s')
         self.check_label_consistency()

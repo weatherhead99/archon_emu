@@ -6,22 +6,49 @@ Created on Wed Jan 11 01:45:15 2017
 @author: danw
 """
 
-from archon_timing_dsl import ArchonInstructions, CALL_INSTR_TYPES, ARGUMENT_INSTR_TYPES
+from .archon_timing_dsl import  CALL_INSTR_TYPES, ARGUMENT_INSTR_TYPES
+from .archontypes import ArchonInstructions
+from .archon_timing_dsl import ArchonCompiler
+
+#
+#class ArchonInstructions(Enum):
+#    STATE = 0
+#    GOTO = 1
+#    CALL = 2
+#    DECREMENT = 3
+#    RETURN = 4
+#    CONDITIONAL =5
+#    REPEAT=6
 
 
 class ArchonVM:
-    def __init__(self,parameters,clockstates):
+    @classmethod
+    def from_compiler(cls,obj):
+        if isinstance(obj,ArchonCompiler):
+            instructions = obj.compile_timing_script()
+            return cls(obj.params,obj.states,instructions)
+        raise TypeError("don't know how to construct a %s from a %s" % (cls.__name__, type(obj).__name__))
+            
+    
+    def __init__(self,parameters,clockstates,instructions=None):
         self.parameters = parameters
         self.clockstates = clockstates
+        if instructions is not None:
+            self.instructions = instructions
         
         
-    def run(self,instructions, start_ptr = 0):
+    def run(self,instructions=None, start_ptr = 0):
+        if instructions is None:
+            instructions = self.instructions
         #setup initial state
         self.time = 0
         self.currentClockState = None
         self.loopcount = 0
         self.instruction_ptr = start_ptr
         self.callstack = []
+        self.jumpptr = start_ptr
+
+
         while(self.instruction_ptr < len(instructions)):
             current_instructions = instructions[self.instruction_ptr]            
             
@@ -29,84 +56,117 @@ class ArchonVM:
             #1) is IF MyParameter; MyParameter-- a valid Archon construct?
             #2) is State; CALL MySub(MyParameter); MyParameter-- a valid construct?
             #3) if 2, what does it do?
-
-            if current_instructions[0][0] is not ArchonInstructions.STATE:
-                raise TypeError('Always Expect STATE as first opcode of compiled instruction')
-        
-            self.currentClockState = current_instructions[0][1]
-            yield (self.instruction_ptr, self.time, self.currentClockState)
             
+            #compiler should output instructions in correct order
             
-            #process variable decrement
-            try:
-                decrementinstridx = [_[0] is ArchonInstructions.DECREMENT for _ in current_instructions].index(True)
-                decrementvar = current_instructions[decrementinstridx][1]
-                self.parameters[decrementvar] -= 1    
-            except ValueError:
-                #this instruction doesn't decrement anything
-                pass
-
+            #unless changed later, the next time step we do the next set of instructions
+            self.jumpptr = self.instruction_ptr+1
+            skipinstr = False
             
-            #process conditional
-            try:
-                condinstridx = [_[0] is ArchonInstructions.CONDITIONAL for _ in current_instructions].index(True)
-                #dereference parameter from store
-                paramval = self.parameters[current_instructions[condinstridx][2]]
-                #process the !
-                #WARNING: THIS MIGHT BE THE WRONG WAY ROUND!
-                condition = not bool(paramval) if current_instructions[condinstridx][1] else bool(paramval)
-                
-                if condition:
-                    #do not check jumps or anything, just increment time and iptr
-                    self.instruction_ptr += 1
-                    self.time += 1
+            for instr in current_instructions:
+                if(skipinstr):
+                    skipinstr = False
                     continue
+                print(instr)
                 
-            except ValueError:
-                pass
-            
-            #process CALLs, GOTOs and RETURNs
-            try:
-                jumpinstridx = [_[0] in CALL_INSTR_TYPES for _  in current_instructions].index(True)
-                
-                if current_instructions[jumpinstridx][0] is ArchonInstructions.GOTO:
-                    #nothing else to do, will just jump appropriately
-                    self.instruction_ptr = current_instructions[jumpinstridx][1]
-                    
-                elif current_instructions[jumpinstridx][0] is ArchonInstructions.CALL:
-                    #set the count variable, push current instructionptr to stack and then jump
-                    countvalue = current_instructions[jumpinstridx][2]
-                    if type(countvalue) is not int:
-                        #if it's not already an integer, try to dereference it from parameters
-                        countvalue = self.parameters[countvalue]
+                if instr[0] is ArchonInstructions.CONDITIONAL:                    
+                    paramval = self.deref(instr[2])
+                    condition = bool(paramval) if instr[1] else not bool( paramval)
+                    if not condition:
+                        print('condition not matched')
+                        #set the loop to skip over the next instruction
+                        skipinstr = True
+                elif instr[0] is ArchonInstructions.STATE:
+                    print('setting state')
+                    self.currentClockState = instr[1]
+                elif instr[0] is ArchonInstructions.GOTO:
+                    print('GOTO')
+                    self.jumpptr = instr[1]
+                elif instr[0] is ArchonInstructions.CALL:
+                    print('CALL')
+                    self.jumpptr = instr[1]
                     self.callstack.append(self.instruction_ptr)
-                    self.loopcount = countvalue
-                    self.instruction_ptr = current_instructions[jumpinstridx][1]
-
-                elif current_instructions[jumpinstridx][0] is ArchonInstructions.RETURN:
-                    #if we've run out of count, pop the stack and go back
-                    if self.loopcount == 0 :
-                        self.instruction_ptr = self.callstack.pop()    
-                    #if we haven't, jump to the value handily encoded in the RETURN stmt
+                    self.loopcount = self.deref(instr[2])
+                elif instr[0] is ArchonInstructions.DECREMENT:
+                    print('DECREMENT')
+                    self.parameters[instr[1]] -= 1
+                elif instr[0] is ArchonInstructions.RETURN:
+                    print('RETURN')
+                    #return needs higher priority (i.e. further down the block) than
+                    #CALL, otherwise implicit call structure doesn't work properly
+                    self.loopcount -= 1
+                    print('loopcount = %d' % self.loopcount)
+                    if self.loopcount <= 0:
+                        #jump out of subroutine 
+                        self.jumpptr = self.callstack.pop() + 1
+                        print('jumping back to %d' % self.jumpptr)
                     else:
-                        self.loopcount -=1
-                        self.instruction_ptr = current_instructions[jumpinstridx][1]
-                    
-                
-            except ValueError:
-                #no jump in this instruction
-                self.instruction_ptr += 1
-                pass
+                        #jump back to start of subroutine
+                        self.jumpptr = instr[1]
             
-            #time always passes
+            yield self.time, self.instruction_ptr,self.currentClockState
+            self.instruction_ptr = self.jumpptr
             self.time += 1
-
             
             
             
+    def deref(self,val):
+        val = val if type(val) is int else self.parameters[val]
+        return val
             
+        
+    
+    def _pushstack(self,ptr):
+        pass
+    
+    def _popstack(self):
+        pass
+    
     def applyclockstate(self,state):
         print('applying %s ' % state)
+
+
+class ArchonVM_Instrumented(ArchonVM):
+    @classmethod
+    def from_compiler(cls,obj):
+        if isinstance(obj,ArchonCompiler):
+            instructions = obj.compile_timing_script()
+            instrumentation = obj.get_instrumentation()
+            return cls(obj.params,obj.states,instrumentation,instructions)
+        raise TypeError("don't know how to construct a %s from a %s" % (cls.__name__, type(obj).__name__))
+    
+    def __init__(self,parameters,clockstates,instrumentation,instructions=None):
+        super().__init__(parameters,clockstates,instructions)
+        self.instrumented_derefs = instrumentation[0]
+        self.instrumented_calls = instrumentation[1]    
+        self.labeljumps = instrumentation[2]
+        self.reverse_lookup_labeljumps = {v:k for k,v in self.labeljumps.items()}
+        
+    def run(self,instructions=None,start_ptr =0 ):
+        baseit = super().run(instructions,start_ptr)
+        while True:
+            time,iptr,statename = next(baseit)
+            
+            derefs = self.instrumented_derefs[iptr]
+            calls = self.instrumented_calls[iptr]
+            infun = self.infunc(iptr)
+            callstack_infun = [self.infunc(_) for _ in self.callstack]
+            
+            yield time,iptr,statename,derefs,calls,infun,callstack_infun
+
+            
+    def infunc(self,iptr):
+        it = iter(sorted(self.reverse_lookup_labeljumps.keys()))
+        
+        lowbound = next(it)
+        while True:
+            highbound = next(it)
+            if lowbound <= iptr and highbound > iptr:
+                return self.reverse_lookup_labeljumps[lowbound]
+            lowbound = highbound
+            highbound = next(it)
+            
+
         
 if __name__ == '__main__':
     from archon_sample_data import *
@@ -117,12 +177,6 @@ if __name__ == '__main__':
     
     instructions = compiler.compile_timing_script(sample_script)
     
-    vm = ArchonVM(sample_params, sample_states)
+    vm = ArchonVM({'MyParameter': 1}, sample_states)
     
-    gen = vm.run(instructions)
-    
-    for i in range(100):
-        iptr,time,state =next(gen)
-        print('location: %d, time: %d, state: %s' % (iptr,time,state))
-        print('loop counter: %d' % vm.loopcount)
-        
+    it = vm.run(instructions)
