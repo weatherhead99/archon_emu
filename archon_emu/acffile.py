@@ -7,31 +7,34 @@ Created on Tue Jan 10 18:19:22 2017
 """
 
 
-
+from configparser import ConfigParser
 
 class acffile:
     def __init__(self,fname):
-        with open(fname) as f:
-            self.lines = f.readlines()
+        self.cp = ConfigParser()
+        self.cp.read(fname)
+            
+    @property
+    def timing_script(self):        
+        if not hasattr(self,'_timingscript'):
+            nlines = self.cp['CONFIG'].getint('LINES')
+            self._timingscript = [ self.cp['CONFIG']['LINE%d' %_] for _ in range(nlines)]
+        
+        return self._timingscript
 
-    def extract_timing_script(self):
         
-        def parse_timing_line(line):
-            idx = int(line.split('=')[0].split('LINE')[1])
-            val = line.split('=')[1].strip()
-            return idx,val
-        
-        self.timing_lines = ( _ for _ in self.lines if _.startswith('LINE'))
-        
-        self.idxvals = map(parse_timing_line,self.timing_lines)
+    
+            
         
         
         
 
 
 if __name__ == '__main__':
-    fl = 'ACF_files/CCD250_e2v_Image.acf'
+    import os
+    os.chdir('../seqs')
+    fl = 'CCD250_20161109_LOW_GAIN-reversed-xed.acf'
+    #fl = '../seqs/CCD250_20161109_LOW_GAIN-reversed-xed.acf'
     
-    reader = acffile(fl)
+    archon_conf = acffile(fl)
     
-    reader.extract_timing_script()
