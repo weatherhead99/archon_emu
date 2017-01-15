@@ -24,7 +24,9 @@ class archon_module_type(Enum):
     LVXBias = 9
     LVDS = 9
 
-        
+ternaryrepr = {False : "_",
+               True : "^",
+               None : "-"}
     
 class InvalidClockStateList(Exception):
     pass
@@ -88,6 +90,7 @@ class ADState(ClockState):
     def __repr__(self):
         return 'ADState: CLAMP=%d, FLAG=%d' % (self.clamp,self.flag)
 
+
         
 class BiasState(ClockState):
     """class representing clock states applied to bias modules"""
@@ -96,17 +99,46 @@ class BiasState(ClockState):
     MODULE_NAME = 'BIAS'
     
     def __init__(self):
-        self.validate_statelist()
+        #NOTE statelist magically filled in by metaclass
+        self.validate_statelist()    
         
-        
-        
+        if self.hasgpio:
+            gpiovals = self._statelist[:16]
             
-                        
+            #dictionary of (state,keep) tuple combinations
+            #abuse of python None value for no change
+            gpio_lookup = {(0,0) : False,
+                           (0,1) : None,
+                           (1,0) : True,
+                           (1,1) : None}
+            
+            #lookup in pairs            
+            self._setclocks = [gpio_lookup[_] for _ in zip(*[iter(gpiovals)]*2)]
+    
+
+    def __repr__(self):
+            st = 'BiasState:'
+            if self.hasgpio:
+                gpiostr = "".join((ternaryrepr[_] for _ in self._setclocks))
+                st += ' GPIO=[%s]' % gpiostr
+
+            if self.cansetbias:
+                biasstr = str(self._statelist[16:])
+                st += 'BIASCMD=' + biasstr
+
+            return st
+            
+                               
+                
     def validate_statelist(self):
         if self._moduleinstance.version.build < 833:
             self.cansetbias = False
+            
+        if self._moduleinstance.type in [archon_module_type.LVBias, archon_module_type.LVXBias]:
+            #only LV bias modules have GPIO
+            self.hasgpio = True
         #see archon manual page 59 and 60
-        if self._moduleinstance.type in [archon_module_type.HVBias, archon_module_type.HVXBias]:
+        if not self.hasgpio:
             #we're a high voltage state
             if not self.cansetbias:
 #                TODO: NOT SPECIFIED, almost certainly 0
@@ -120,13 +152,47 @@ class BiasState(ClockState):
             else:
                 self.require_statelist_len(19)
         
+class SlewRate(Enum):
+    SLOW = 0
+    FAST = 1
 
 class DriverState(ClockState):
     """class representing clock states applied to clock driver modules"""
     MODULE_TYPES = [archon_module_type.Driver]
     MODULE_NAME = 'DRIVER'
     def __init__(self):
+        #NOTE statelist magically filled in by metaclass
         #list comes in groups of 3, and there are 8 channels
         self.require_statelist_len(24)
+        
+        vals = self._statelist[::3]        
+        keep = self._statelist[2::3]
+        
+        self._slewrates = [SlewRate(_) for _ in self._statelist[1::3]]
 
+        self._clockset = []
+        for v,k in zip(vals,keep):
+            if bool(k):
+                self._clockset.append(None)
+                continue
+            self._clockset.append(v)
+
+    def __repr__(self):
+        syms = ['-'] * 8
+        
+        labels = {}
+        i = 0
+        for ind,(clock,slew) in enumerate(zip(self._clockset,self._slewrates)):
+            if clock is None:
+                continue
+            if clock in labels:
+                syms[ind] = labels[clock]
+                if slew is SlewRate.SLOW:
+                    syms[ind] +='*'
+
+            else:
+                labels[clock]=str(i)
+                i+=1
+        return 'CLOCKState: CHANGES=[' + ''.join(syms) + '], VALUES=[' + str(labels) + ']'
+            
 #TODO: implement HS, LVDS modules....

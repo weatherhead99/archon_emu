@@ -163,9 +163,14 @@ class acffile:
             for idx,modind in enumerate(modpos):
                 modd = 'MOD%d' % modind
                 try:
+                    module = self.modules[idx]
+                    
                     modlist = list(listparse(
                                 stripline(self.cp['CONFIG'][stated + modd])))
-                    modstates[modind] = ClockState.get_state_instance(self.modules[idx],modlist)
+#                    if module.type == archon_module_type.Driver:
+#                        print(stripline(self.cp['CONFIG'][stated+modd]))
+#                        print(modlist)
+                    modstates[modind] = ClockState.get_state_instance(module,modlist)
                     
                 except KeyError:
                     warnings.warn("state %s doesn't have config for module %d" % (name, modind),
@@ -210,3 +215,4 @@ if __name__ == '__main__':
     archon_conf = acffile(fl)
     mod = archon_conf.states['SF1'][3]._moduleinstance
 
+    dstate = archon_conf.states['SR8'][10]
