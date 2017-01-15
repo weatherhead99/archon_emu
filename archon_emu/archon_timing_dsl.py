@@ -87,6 +87,7 @@ class ArchonCompiler:
         setparsecall(DECREMENT,self.decrement)
         
         IF = (kwsup('IF') + ps.Optional(ps.Literal('!')) + ps.Or(parameter_kws)  )
+        #TODO: WHAT HAPPENS ON IF + STATENAME?????
         
         #the odd one out!
         IF.setParseAction(lambda t : self.conditional(t))
@@ -96,7 +97,7 @@ class ArchonCompiler:
         #IF = (kwsup('IF') + ps.Optional(ps.Literal('!')) + ps.Or(parameter_kws) + builtin_action.suppress())
                 
         
-        active_timing_line = state_expr + ps.ZeroOrMore(litsup(';') + (builtin_action ^ (IF + builtin_action))) 
+        active_timing_line = state_expr + ps.ZeroOrMore(litsup(';') + (builtin_action ^ (IF + (builtin_action^ state_expr)))) + ps.Optional(litsup(';')) 
         active_timing_line.setParseAction(lambda t: self.advance_line())
 
         archon_dsl_expr = ps.OneOrMore(comment | labeldefine | active_timing_line) 
