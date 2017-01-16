@@ -12,24 +12,13 @@ from enum import Enum
 
 import logging
 
-
-
- 
-class ArchonInstructions(Enum):
-    STATE = 0
-    GOTO = 1
-    CALL = 2
-    DECREMENT = 3
-    RETURN = 4
-    CONDITIONAL =5
-    REPEAT=6
-    
+from .archontypes import ArchonInstructions   
     
 #TODO: NOP
 #TODO: HANDLE EMPTY LINES
 
 #these instructions represent control flow jumps
-CALL_INSTR_TYPES = [ArchonInstructions.CALL , ArchonInstructions.GOTO]
+CALL_INSTR_TYPES = [ArchonInstructions.CALL , ArchonInstructions.GOTO, ArchonInstructions.RETURN]
 
 #these instructions can take an loop argument
 ARGUMENT_INSTR_TYPES = [ArchonInstructions.CALL, ArchonInstructions.DECREMENT]
@@ -51,6 +40,12 @@ class ArchonCompiler:
         self.alllineactions = []
         self.instrumented_derefs = []
         self.instrumented_calls = []
+
+        self.aux_instrumented_calls = []
+        self.aux_instrumented_derefs = []
+        self.auxlines =[]
+        self.auxlabeljumps = {}
+        self.auxlinenum = 0
 
         self.commentlines = []
             
@@ -140,14 +135,19 @@ class ArchonCompiler:
         self.currentlineactions.append( [ArchonInstructions.CALL, labelname,argument])
         self.debug_linenum_msg('CALL: %s %s' % (labelname,argument))
     
-    def implicitcall(self,labelname,argument=None):
+    def implicitcall(self,labelname,argument=None):        
+        self.currentlineactions.append([ArchonInstructions.CALL,labelname,argument])
         
-        #the real thing implicitly defines a subroutine and calls it,
-        #but we'll justr special case it in the VM for now
-        self.currentlineactions.insert(0,[ArchonInstructions.REPEAT,argument])
-        self.debug_linenum_msg('REPEAT state: %s %s (implicit subroutine)' %(labelname, argument))
+        auxline = [  [ArchonInstructions.STATE,labelname],
+                    [ArchonInstructions.RETURN,labelname]]
         
+        self.auxlines.append(auxline)
+        self.auxlabeljumps[labelname] = self.auxlinenum
+        self.auxlinenum += 1
         
+        self.aux_instrumented_derefs.append([])
+        self.aux_instrumented_calls.append([])
+
         
     def ret(self,labelname):
         self.currentlineactions.append( [ArchonInstructions.RETURN, labelname])
@@ -230,7 +230,8 @@ class ArchonCompiler:
                         self.instrumented_derefs[ind].append(constname)
                         #append constant name for instrumentation purposes
                         
-                
+    def get_instrumentation(self):
+        return [self.instrumented_derefs,self.instrumented_calls,self.labeljumps]
 
     def compile_timing_script(self, script,forcecompile=True):
         #reset internal state
@@ -249,7 +250,16 @@ class ArchonCompiler:
         except ps.ParseException:
             raise RuntimeError("couldn't parse script beyond line %d, this could be an archon_emu bug" % self.linenum)
             
+        #merge implicit calls
+        self.alllineactions.extend(self.auxlines)
+        #merge implicit call labels
+        implicit_labels_with_offsets = {k:v+self.linenum for k,v in self.auxlabeljumps.items()}
+        self.labeljumps.update(implicit_labels_with_offsets)
     
+        #merge implicit instrumented stuff
+        self.instrumented_derefs.extend(self.aux_instrumented_derefs)
+        self.instrumented_calls.extend(self.aux_instrumented_calls)
+        
         #run script checks
         print('comments: %s')
         self.check_label_consistency()

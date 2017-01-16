@@ -1,0 +1,13 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Jan 15 23:18:10 2017
+
+@author: danw
+"""
+
+from setuptools import setup, find_packages
+
+setup(
+      name='archon_emu',
+      packages=find_packages())

@@ -24,6 +24,17 @@ class archon_module_type(Enum):
     LVXBias = 9
     LVDS = 9
 
+
+class ArchonInstructions(Enum):
+    STATE = 0
+    GOTO = 1
+    CALL = 2
+    DECREMENT = 3
+    RETURN = 4
+    CONDITIONAL =5
+    REPEAT=6
+ 
+    
 ternaryrepr = {False : "_",
                True : "^",
                None : "-"}
