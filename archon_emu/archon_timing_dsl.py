@@ -43,6 +43,15 @@ class ArchonCompiler:
         self.states = states
         self.params = params
         self.constants = constants
+        
+
+        if tscript is not None:
+            self.tscript = tscript
+            
+        self._clear_internal_state()
+
+    def _clear_internal_state(self):
+        self.commentlines = []
         self.linenum = 0
         self.labeljumps = {}
         self.currentlineactions = []
@@ -55,11 +64,7 @@ class ArchonCompiler:
         self.auxlines =[]
         self.auxlabeljumps = {}
         self.auxlinenum = 0
-
-        self.commentlines = []
-
-        if tscript is not None:
-            self.tscript = tscript
+        
             
     def construct_parser(self):
         #define keywords recognised within this timing script
@@ -206,7 +211,7 @@ class ArchonCompiler:
         for line in self.alllineactions:
             calls = [_ for _ in line if _[0] in CALL_INSTR_TYPES]
             for call in calls:
-                if call[1] not in all_used_call_targets:
+                if call[1] not in all_used_call_targets :
                     all_used_call_targets.append(call[1])
         
         
@@ -248,14 +253,10 @@ class ArchonCompiler:
     def compile_timing_script(self, script=None,forcecompile=True):
         if script is None:
             script = self.tscript
-        
+
+        self._clear_internal_state()
         #reset internal state
-        self.alllineactions = []
-        self.linenum = 0
-        self.labeljumps = {}        
         
-
-
         #parse the timing script 
         dsl_expr = self.construct_parser()
         
@@ -282,7 +283,7 @@ class ArchonCompiler:
         self.instrumented_calls.extend(self.aux_instrumented_calls)
         
         #run script checks
-        print('comments: %s')
+#        print('comments: %s')
         self.check_label_consistency()
         self.check_duplicate_params_constants()
         
