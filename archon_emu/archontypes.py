@@ -85,7 +85,10 @@ class ClockState(metaclass=_ClockStateMeta):
     def require_statelist_len(self,n):
         if len(self._statelist) != n:
             raise InvalidClockStateList(self.MODULE_NAME + ' object requires statelist of length: %d. Got length: %d' %(n,len(self._statelist)))
-        
+    
+    def get(self):
+        return []
+            
 class ADState(ClockState):
     """class representing clock states applied to an AD module"""
     MODULE_TYPES = [archon_module_type.AD]
@@ -97,10 +100,15 @@ class ADState(ClockState):
             
         self.clamp = self._statelist[0]
         self.flag = self._statelist[1]
-            
-    def __repr__(self):
-        return 'ADState: CLAMP=%d, FLAG=%d' % (self.clamp,self.flag)
+        
+        self.val = bool(self.clamp) if not self.flag else None            
 
+    def __repr__(self):
+        gpiostr = ternaryrepr[self.val]
+        return 'ADState: CLAMP=%s' % (gpiostr)
+
+    def get(self):
+        return [self.val]
 
         
 class BiasState(ClockState):
@@ -139,7 +147,8 @@ class BiasState(ClockState):
 
             return st
             
-                               
+    def get(self):
+        return self._setclocks
                 
     def validate_statelist(self):
         if self._moduleinstance.version.build < 833:
@@ -204,5 +213,7 @@ class DriverState(ClockState):
                 labels[clock]=str(i)
                 i+=1
         return 'CLOCKState: CHANGES=[' + ''.join(syms) + '], VALUES=[' + str(labels) + ']'
-            
+          
+    def get(self):
+        return self._clockset
 #TODO: implement HS, LVDS modules....

@@ -9,17 +9,7 @@ Created on Wed Jan 11 01:45:15 2017
 from .archon_timing_dsl import  CALL_INSTR_TYPES, ARGUMENT_INSTR_TYPES
 from .archontypes import ArchonInstructions
 from .archon_timing_dsl import ArchonCompiler
-
-#
-#class ArchonInstructions(Enum):
-#    STATE = 0
-#    GOTO = 1
-#    CALL = 2
-#    DECREMENT = 3
-#    RETURN = 4
-#    CONDITIONAL =5
-#    REPEAT=6
-
+import logging
 
 class ArchonVM:
     @classmethod
@@ -35,7 +25,11 @@ class ArchonVM:
         self.clockstates = clockstates
         if instructions is not None:
             self.instructions = instructions
-        
+            
+        self.logger = logging.getLogger('archon_emu.ArchonVM')
+    
+    def debug_iptr_msg(self,msg,fun = logging.Logger.debug):
+        fun(self.logger, ('iptr %d: %s' %(self.instruction_ptr, msg)))
         
     def run(self,instructions=None, start_ptr = 0):
         if instructions is None:
@@ -67,39 +61,40 @@ class ArchonVM:
                 if(skipinstr):
                     skipinstr = False
                     continue
-                print(instr)
+#                self.debug_iptr_msg(instr)
                 
                 if instr[0] is ArchonInstructions.CONDITIONAL:                    
                     paramval = self.deref(instr[2])
                     condition = bool(paramval) if instr[1] else not bool( paramval)
+                    self.debug_iptr_msg('CONDITIONAL on %s' % str(instr[2]))
                     if not condition:
-                        print('condition not matched')
+                        self.debug_iptr_msg('condition not matched')
                         #set the loop to skip over the next instruction
                         skipinstr = True
                 elif instr[0] is ArchonInstructions.STATE:
-                    print('setting state')
+                    self.debug_iptr_msg('setting state %s' % instr[1])
                     self.currentClockState = instr[1]
                 elif instr[0] is ArchonInstructions.GOTO:
-                    print('GOTO')
+                    self.debug_iptr_msg('GOTO: %d' %instr[1])
                     self.jumpptr = instr[1]
                 elif instr[0] is ArchonInstructions.CALL:
-                    print('CALL')
+                    self.debug_iptr_msg('CALL: %d ' % instr[1] + str(instr[2]))
                     self.jumpptr = instr[1]
                     self.callstack.append(self.instruction_ptr)
                     self.loopcount = self.deref(instr[2])
                 elif instr[0] is ArchonInstructions.DECREMENT:
-                    print('DECREMENT')
+                    self.debug_iptr_msg('DECREMENT %s'  % instr[1])
                     self.parameters[instr[1]] -= 1
                 elif instr[0] is ArchonInstructions.RETURN:
-                    print('RETURN')
+                    self.debug_iptr_msg('RETURN')
                     #return needs higher priority (i.e. further down the block) than
                     #CALL, otherwise implicit call structure doesn't work properly
                     self.loopcount -= 1
-                    print('loopcount = %d' % self.loopcount)
+                    self.debug_iptr_msg('loopcount = %d' % self.loopcount)
                     if self.loopcount <= 0:
                         #jump out of subroutine 
                         self.jumpptr = self.callstack.pop() + 1
-                        print('jumping back to %d' % self.jumpptr)
+                        self.debug_iptr_msg('jumping back to %d' % self.jumpptr)
                     else:
                         #jump back to start of subroutine
                         self.jumpptr = instr[1]
@@ -107,7 +102,6 @@ class ArchonVM:
             yield self.time, self.instruction_ptr,self.currentClockState
             self.instruction_ptr = self.jumpptr
             self.time += 1
-            
             
             
     def deref(self,val):
