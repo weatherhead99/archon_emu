@@ -249,7 +249,11 @@ class ArchonCompiler:
             dsl_expr.parseString(script)
         except ps.ParseException:
             raise RuntimeError("couldn't parse script beyond line %d, this could be an archon_emu bug" % self.linenum)
-            
+        
+        #add a halt instruction
+        self.currentlineactions.append([ArchonInstructions.HALT])
+        self.advance_line()
+        
         #merge implicit calls
         self.alllineactions.extend(self.auxlines)
         #merge implicit call labels

@@ -20,16 +20,9 @@ from .archontypes import ArchonInstructions
 
 
 class ArchonVM:
-    
-    def __init__(self,parameters,clockstates,instrumentation=None):
+    def __init__(self,parameters,clockstates):
         self.parameters = parameters
         self.clockstates = clockstates
-        if instrumentation is None:
-            self.instrument_output=False
-        else:
-            self.instrumented_derefs = instrumentation[0]
-            self.instrumented_calls = instrumentation[1]    
-            self.labeljumps = instrumentation[2]
         
         
     def run(self,instructions, start_ptr = 0):
@@ -39,7 +32,7 @@ class ArchonVM:
         self.loopcount = 0
         self.instruction_ptr = start_ptr
         self.callstack = []
-        self.jumpptr = 0
+        self.jumpptr = start_ptr
         self.state = None
 
         while(self.instruction_ptr < len(instructions)):
@@ -71,7 +64,7 @@ class ArchonVM:
                         skipinstr = True
                 elif instr[0] is ArchonInstructions.STATE:
                     print('setting state')
-                    self.state = instr[1]
+                    self.currentClockState = instr[1]
                 elif instr[0] is ArchonInstructions.GOTO:
                     print('GOTO')
                     self.jumpptr = instr[1]
@@ -97,7 +90,7 @@ class ArchonVM:
                         #jump back to start of subroutine
                         self.jumpptr = instr[1]
             
-            yield self.time, self.instruction_ptr,self.state    
+            yield self.time, self.instruction_ptr,self.currentClockState
             self.instruction_ptr = self.jumpptr
             self.time += 1
             
@@ -117,6 +110,41 @@ class ArchonVM:
     
     def applyclockstate(self,state):
         print('applying %s ' % state)
+
+
+class ArchonVM_Instrumented(ArchonVM):
+    def __init__(self,parameters,clockstates,instrumentation):
+        super().__init__(parameters,clockstates)
+        self.instrumented_derefs = instrumentation[0]
+        self.instrumented_calls = instrumentation[1]    
+        self.labeljumps = instrumentation[2]
+        self.reverse_lookup_labeljumps = {v:k for k,v in self.labeljumps.items()}
+        
+    def run(self,instructions,start_ptr =0 ):
+        baseit = super().run(instructions,start_ptr)
+        while True:
+            time,iptr,statename = next(baseit)
+            
+            derefs = self.instrumented_derefs[iptr]
+            calls = self.instrumented_calls[iptr]
+            infun = self.infunc(iptr)
+            callstack_infun = [self.infunc(_) for _ in self.callstack]
+            
+            yield time,iptr,statename,derefs,calls,infun,callstack_infun
+
+            
+    def infunc(self,iptr):
+        it = iter(sorted(self.reverse_lookup_labeljumps.keys()))
+        
+        lowbound = next(it)
+        while True:
+            highbound = next(it)
+            if lowbound <= iptr and highbound > iptr:
+                return self.reverse_lookup_labeljumps[lowbound]
+            lowbound = highbound
+            highbound = next(it)
+            
+
         
 if __name__ == '__main__':
     from archon_sample_data import *

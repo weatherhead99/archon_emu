@@ -32,7 +32,7 @@ class ArchonInstructions(Enum):
     DECREMENT = 3
     RETURN = 4
     CONDITIONAL =5
-    REPEAT=6
+    HALT=6
  
     
 ternaryrepr = {False : "_",
