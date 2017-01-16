@@ -8,6 +8,8 @@ Created on Wed Jan 11 01:45:15 2017
 
 from .archon_timing_dsl import  CALL_INSTR_TYPES, ARGUMENT_INSTR_TYPES
 from .archontypes import ArchonInstructions
+from .archon_timing_dsl import ArchonCompiler
+
 #
 #class ArchonInstructions(Enum):
 #    STATE = 0
@@ -20,12 +22,24 @@ from .archontypes import ArchonInstructions
 
 
 class ArchonVM:
-    def __init__(self,parameters,clockstates):
+    @classmethod
+    def from_compiler(cls,obj):
+        if isinstance(obj,ArchonCompiler):
+            instructions = obj.compile_timing_script()
+            return cls(obj.params,obj.states,instructions)
+        raise TypeError("don't know how to construct a %s from a %s" % (cls.__name__, type(obj).__name__))
+            
+    
+    def __init__(self,parameters,clockstates,instructions=None):
         self.parameters = parameters
         self.clockstates = clockstates
+        if instructions is not None:
+            self.instructions = instructions
         
         
-    def run(self,instructions, start_ptr = 0):
+    def run(self,instructions=None, start_ptr = 0):
+        if instructions is None:
+            instructions = self.instructions
         #setup initial state
         self.time = 0
         self.currentClockState = None
@@ -33,7 +47,7 @@ class ArchonVM:
         self.instruction_ptr = start_ptr
         self.callstack = []
         self.jumpptr = start_ptr
-        self.state = None
+
 
         while(self.instruction_ptr < len(instructions)):
             current_instructions = instructions[self.instruction_ptr]            
@@ -113,14 +127,22 @@ class ArchonVM:
 
 
 class ArchonVM_Instrumented(ArchonVM):
-    def __init__(self,parameters,clockstates,instrumentation):
-        super().__init__(parameters,clockstates)
+    @classmethod
+    def from_compiler(cls,obj):
+        if isinstance(obj,ArchonCompiler):
+            instructions = obj.compile_timing_script()
+            instrumentation = obj.get_instrumentation()
+            return cls(obj.params,obj.states,instrumentation,instructions)
+        raise TypeError("don't know how to construct a %s from a %s" % (cls.__name__, type(obj).__name__))
+    
+    def __init__(self,parameters,clockstates,instrumentation,instructions=None):
+        super().__init__(parameters,clockstates,instructions)
         self.instrumented_derefs = instrumentation[0]
         self.instrumented_calls = instrumentation[1]    
         self.labeljumps = instrumentation[2]
         self.reverse_lookup_labeljumps = {v:k for k,v in self.labeljumps.items()}
         
-    def run(self,instructions,start_ptr =0 ):
+    def run(self,instructions=None,start_ptr =0 ):
         baseit = super().run(instructions,start_ptr)
         while True:
             time,iptr,statename = next(baseit)

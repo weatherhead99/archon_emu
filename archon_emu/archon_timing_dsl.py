@@ -13,6 +13,7 @@ from enum import Enum
 import logging
 
 from .archontypes import ArchonInstructions   
+from .acffile import ArchonConfig
     
 #TODO: NOP
 #TODO: HANDLE EMPTY LINES
@@ -29,7 +30,15 @@ kwsup = lambda kw : ps.Keyword(kw).suppress()
 setparsecall = lambda obj, fun : obj.setParseAction(lambda t : fun(*t))
 
 class ArchonCompiler:
-    def __init__(self,states,params,constants):
+    
+    @classmethod
+    def from_archonconfig(cls,obj):
+        if isinstance(obj,ArchonConfig):
+            return cls(obj.states,obj.parameters,obj.constants,obj.timing_script)
+        
+        raise TypeError("don't know how to construct a %s from a %s" % (cls.__name__, type(obj).__name__))
+    
+    def __init__(self,states,params,constants,tscript=None):
         self.logger = logging.getLogger('archon_emu.ArchonCompiler')
         self.states = states
         self.params = params
@@ -48,6 +57,9 @@ class ArchonCompiler:
         self.auxlinenum = 0
 
         self.commentlines = []
+
+        if tscript is not None:
+            self.tscript = tscript
             
     def construct_parser(self):
         #define keywords recognised within this timing script
@@ -233,11 +245,16 @@ class ArchonCompiler:
     def get_instrumentation(self):
         return [self.instrumented_derefs,self.instrumented_calls,self.labeljumps]
 
-    def compile_timing_script(self, script,forcecompile=True):
+    def compile_timing_script(self, script=None,forcecompile=True):
+        if script is None:
+            script = self.tscript
+        
         #reset internal state
         self.alllineactions = []
         self.linenum = 0
         self.labeljumps = {}        
+        
+
 
         #parse the timing script 
         dsl_expr = self.construct_parser()
