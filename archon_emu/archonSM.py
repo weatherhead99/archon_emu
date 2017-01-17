@@ -86,10 +86,32 @@ class ArchonSM:
                 newvals = modstate.get()
                 #dereference any parameters
                 newvals_derefed = [deref_val(_,self.constants,self.vm.parameters) for _ in newvals]            
+                                   
+#                if modpos == 10:
+#                    print(id(modstate))
+#                    print('statename: %s' % statename)
+#                    print('oldvalues: %s' % str(self.clockvals[modpos]))
+#                    print('newvalues: %s' % str(newvals_derefed))
+#                    print('newvalues: %s' % str(newvals))
+#                                   
                 self.clockvals[modpos] = self.resolve_clock_values(self.clockvals[modpos], newvals_derefed)
             
             yield self.clockvals
-        
+
+def filterclocks(gen,spec,flat=False):
+    while True:
+        allclocks = next(gen)
+        selected_clocks = {k:[_ for ind,_ in enumerate(v) if spec[k][ind]]
+                               for k,v in allclocks.items() if k in spec}
+
+        if not flat:
+            yield selected_clocks
+        else:
+            flat_clocks = []
+            for v in selected_clocks.values():
+                flat_clocks.extend(v)
+
+            yield flat_clocks
     
 if __name__ =='__main__':
     from archon_emu.acffile import ArchonConfig, StateConfigWarning
@@ -107,15 +129,27 @@ if __name__ =='__main__':
     vm = ArchonVM.from_compiler(compiler)
     
     sm = ArchonSM(conf.states,conf.modules,conf.constants, vm)
-    
+    #setup some parameters to be a bit quicker
     vm.parameters['LCLK'] = 1
-    vm.parameters['Tpa'] = 2
-    vm.parameters['Tpb'] = 2    
+    vm.parameters['Nclear'] = 0
+    vm.parameters['PixSkip'] = 0
+    vm.parameters['Tpa'] = 1
+    vm.parameters['Tpb'] = 1
+    
 
-    vmgen, smgen = itertools.tee(vm.run())
+    #might want two "copies" of the VM generator
+    from itertools import tee
+    vmgen,smgen = tee(vm.run())
     
     clockgen = sm.clock(smgen)
+    #let's watch what module 10's clocks do
+    for i in range(13):
+        #print(next(vmgen))
+        print(str(next(vmgen)[2]) + '\t' + str(next(clockgen)[10]))
     
-    for i in range(5):
-        next(clockgen)
+    spec = {10: [False,True,False,True,False,True,False,True]}
+    filtergen = filterclocks(sm.clock(vm.run()),spec,flat=True)
     
+    for i in range(13):
+        print(next(filtergen))
+
