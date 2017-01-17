@@ -174,3 +174,5 @@ if __name__ == '__main__':
     vm = ArchonVM({'MyParameter': 1}, sample_states)
     
     it = vm.run(instructions)
+    
+        

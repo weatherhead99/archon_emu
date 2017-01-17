@@ -185,13 +185,13 @@ class DriverState(ClockState):
         #list comes in groups of 3, and there are 8 channels
         self.require_statelist_len(24)
         
-        vals = self._statelist[::3]        
-        keep = self._statelist[2::3]
+        self.vals = self._statelist[::3]        
+        self.keep = self._statelist[2::3]
         
         self._slewrates = [SlewRate(_) for _ in self._statelist[1::3]]
 
         self._clockset = []
-        for v,k in zip(vals,keep):
+        for v,k in zip(self.vals,self.keep):
             if bool(k):
                 self._clockset.append(None)
                 continue
@@ -203,15 +203,16 @@ class DriverState(ClockState):
         i = 0
         for ind,(clock,slew) in enumerate(zip(self._clockset,self._slewrates)):
             if clock is None:
-                continue
-            if clock in labels:
-                syms[ind] = labels[clock]
-                if slew is SlewRate.SLOW:
-                    syms[ind] +='*'
-
-            else:
+                syms[ind] = '-'
+            if clock not in labels:
                 labels[clock]=str(i)
                 i+=1
+                
+            syms[ind] = labels[clock]
+            if slew is SlewRate.SLOW:
+                syms[ind] +='*'
+
+                
         return 'CLOCKState: CHANGES=[' + ''.join(syms) + '], VALUES=[' + str(labels) + ']'
           
     def get(self):
