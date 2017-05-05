@@ -11,5 +11,6 @@ from setuptools import setup, find_packages
 setup(
       name='archon_emu',
       packages=find_packages(),
-      scripts = ['scripts/dump_timing_script.py']
+      scripts = ['archon_emu/scripts/dump_timing_script.py',
+                 'archon_emu/scripts/dump_timing_states.py']
 )

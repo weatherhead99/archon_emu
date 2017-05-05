@@ -18,11 +18,13 @@ class archon_module_type(Enum):
     LVBias = 3
     HVBias = 4
     Heater = 5
-    HeaterX = 6 #TODO: this is probably right but not in manual
+    #note manual says HeaterX=6
+    HeaterX = 11 #TODO: this is probably right but not in manual
     HS = 7
     HVXBias = 8
     LVXBias = 9
-    LVDS = 9
+    #LVDS = 9
+    XVBias = 12
 
 
 class ArchonInstructions(Enum):
@@ -114,7 +116,7 @@ class ADState(ClockState):
 class BiasState(ClockState):
     """class representing clock states applied to bias modules"""
     MODULE_TYPES = [archon_module_type.LVBias,archon_module_type.LVXBias ,
-                    archon_module_type.HVBias, archon_module_type.HVXBias]
+                    archon_module_type.HVBias, archon_module_type.HVXBias, archon_module_type.XVBias]
     MODULE_NAME = 'BIAS'
     
     def __init__(self):
@@ -151,12 +153,9 @@ class BiasState(ClockState):
         return self._setclocks
                 
     def validate_statelist(self):
-        if self._moduleinstance.version.build < 833:
-            self.cansetbias = False
-            
-        if self._moduleinstance.type in [archon_module_type.LVBias, archon_module_type.LVXBias]:
-            #only LV bias modules have GPIO
-            self.hasgpio = True
+        self.cansetbias = False if self._moduleinstance.version.build <833 else True
+        self.hasgpio = True if self._moduleinstance.type in [archon_module_type.LVBias, archon_module_type.LVXBias] else False
+        
         #see archon manual page 59 and 60
         if not self.hasgpio:
             #we're a high voltage state
@@ -166,7 +165,7 @@ class BiasState(ClockState):
             else:    
                 self.require_statelist_len(3)            
         else:
-            #were a low voltage state
+            #we're a low voltage state
             if not self.cansetbias:
                 self.require_statelist_len(16)
             else:

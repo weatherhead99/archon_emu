@@ -153,6 +153,8 @@ class ArchonConfig:
             modules.append(archon_module(modind,tp,rev,vers,idn))
         return modules
     
+    
+    
     @property
     @firsttime
     @getnumfromconfig('STATES')
