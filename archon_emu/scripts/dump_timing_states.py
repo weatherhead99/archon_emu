@@ -66,7 +66,7 @@ if __name__ == "__main__":
         with open(args.outfile,'w') as f:
             for sl in statelines:
                 f.write('\n'.join(sl))
-            f.write('\n')
+                f.write('\n')
             
     else:
         for sl in statelines:    
